@@ -738,10 +738,6 @@ with tab1:
                         st.warning("Insufficient data for regression analysis")
                 else:
                     st.info(f"Waiting for more data points (currently: {len(merged)})")
-            else:
-                st.info("Resampling tick data... Please wait or start the WebSocket stream")
-        else:
-            st.info("No tick data available. Please start the WebSocket stream or upload a file")
 
 with tab2:
     st.header("Price Charts & Volume Analysis")
