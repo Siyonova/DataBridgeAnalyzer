@@ -21,13 +21,15 @@ This application is designed for quantitative traders at multi-frequency trading
 
 ### Analytics Engine
 - **OLS Regression**: Calculate hedge ratios between trading pairs
-- **Robust Regression**: Huber regression for outlier-resistant analysis
+- **Robust Regression**: Huber and Theil-Sen regression for outlier-resistant analysis
+- **Kalman Filter**: Dynamic hedge ratio estimation with time-varying parameters
 - **Spread Calculation**: Compute statistical spreads between correlated assets
 - **Z-Score Analysis**: Real-time z-score computation for mean-reversion signals
 - **Rolling Correlation**: Dynamic correlation tracking
 - **ADF Stationarity Test**: Augmented Dickey-Fuller test for spread stationarity
 - **Volatility Analysis**: Rolling volatility calculations
 - **Price Statistics**: Comprehensive statistical summaries
+- **Liquidity Filters**: Volume-based filtering to identify tradeable pairs
 
 ### Visualization
 - **Interactive Candlestick Charts**: OHLCV visualization with zoom and pan
@@ -36,9 +38,18 @@ This application is designed for quantitative traders at multi-frequency trading
 - **Volume Analysis**: Trading volume patterns and trends
 - **Normalized Price Comparison**: Side-by-side pair analysis
 
+### Backtesting Engine
+- **Mean-Reversion Strategy**: Simulate pairs trading with configurable entry/exit z-score thresholds
+- **Performance Metrics**: Sharpe ratio, maximum drawdown, win rate, average win/loss
+- **Equity Curve**: Visual representation of strategy performance over time
+- **Trade History**: Detailed log of all executed trades with timestamps and PnL
+- **Configurable Parameters**: Adjustable initial capital, entry/exit thresholds
+
 ### Alert System
 - **Custom Alert Rules**: Define threshold-based alerts
+- **Multi-Condition Alerts**: Complex rules combining multiple metrics with AND/OR logic
 - **Multiple Metrics**: Alerts for z-score, price, spread, correlation
+- **Webhook Notifications**: Send real-time alerts to external services (Slack, Discord, custom endpoints)
 - **Alert History**: Track all triggered alerts with timestamps
 - **Database Persistence**: All alerts saved for analysis
 
@@ -48,6 +59,12 @@ This application is designed for quantitative traders at multi-frequency trading
 - **CSV Export**: Download processed data and analytics
 - **Summary Statistics**: Time-series aggregation and export
 
+### External Integration
+- **WebSocket Server API**: Flask-based server accepting tick data from external sources
+- **REST API Endpoints**: HTTP endpoints for single tick and batch data ingestion
+- **Real-time Broadcasting**: WebSocket events for connected clients
+- **Multiple Data Sources**: Support for Binance WebSocket, file uploads, and external APIs
+
 ## 🏗️ Architecture
 
 ### Modular Design
@@ -56,12 +73,14 @@ The application follows a clean, modular architecture with clear separation of c
 
 ```
 ├── app.py                      # Main Streamlit application
+├── websocket_server.py         # External data ingestion server
 ├── modules/
 │   ├── database.py            # SQLite database layer
 │   ├── data_ingestion.py      # WebSocket client & file loaders
 │   ├── analytics.py           # Statistical analysis engine
 │   ├── resampler.py           # Time-series resampling
-│   └── alerts.py              # Alert management system
+│   ├── alerts.py              # Alert management system
+│   └── backtesting.py         # Mean-reversion backtesting engine
 ├── crypto_analytics.db        # SQLite database (created at runtime)
 └── README.md
 ```

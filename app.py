@@ -13,6 +13,7 @@ from modules.data_ingestion import BinanceWebSocketClient, FileDataLoader
 from modules.analytics import AnalyticsEngine
 from modules.resampler import DataResampler
 from modules.alerts import AlertManager, AlertRule
+from modules.backtesting import MeanReversionBacktest
 
 st.set_page_config(
     page_title="Crypto Quant Analytics",
@@ -200,16 +201,20 @@ with tab1:
     with col3:
         timeframe = st.selectbox("Timeframe", ['1s', '1m', '5m', '15m'], index=1)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         rolling_window = st.slider("Rolling Window", 5, 100, 20, help="Window for z-score and correlation")
     
     with col2:
-        regression_type = st.selectbox("Regression Type", ["OLS", "Robust (Huber)"])
+        regression_type = st.selectbox("Regression Type", ["OLS", "Robust (Huber)", "Robust (Theil-Sen)", "Kalman Filter"])
     
     with col3:
         run_adf = st.checkbox("Run ADF Test", value=False)
+    
+    with col4:
+        if regression_type == "Kalman Filter":
+            kalman_delta = st.number_input("Kalman Δ", value=1e-5, format="%.1e", help="Transition covariance")
     
     if symbol1 and symbol2 and symbol1 != symbol2:
         tick_data = db.get_tick_data(limit=5000)
@@ -241,22 +246,50 @@ with tab1:
                 )
                 
                 if len(merged) >= 2:
-                    if regression_type == "OLS":
-                        regression_result = AnalyticsEngine.calculate_ols_regression(
-                            merged['price1'], merged['price2']
+                    if regression_type == "Kalman Filter":
+                        kalman_df = AnalyticsEngine.calculate_kalman_hedge_ratio(
+                            merged['price1'], merged['price2'], delta=kalman_delta if regression_type == "Kalman Filter" else 1e-5
                         )
+                        
+                        if not kalman_df.empty:
+                            merged['hedge_ratio'] = kalman_df['hedge_ratio']
+                            merged['intercept'] = kalman_df['intercept']
+                            merged['spread'] = merged.apply(
+                                lambda row: row['price2'] - (row['hedge_ratio'] * row['price1'] + row['intercept']),
+                                axis=1
+                            )
+                            
+                            hedge_ratio = kalman_df['hedge_ratio'].iloc[-1]
+                            intercept = kalman_df['intercept'].iloc[-1]
+                            regression_result = {
+                                'hedge_ratio': hedge_ratio,
+                                'intercept': intercept,
+                                'method': 'Kalman Filter'
+                            }
+                        else:
+                            regression_result = None
                     else:
-                        regression_result = AnalyticsEngine.calculate_robust_regression(
-                            merged['price1'], merged['price2'], method='huber'
-                        )
+                        if regression_type == "OLS":
+                            regression_result = AnalyticsEngine.calculate_ols_regression(
+                                merged['price1'], merged['price2']
+                            )
+                        elif regression_type == "Robust (Theil-Sen)":
+                            regression_result = AnalyticsEngine.calculate_robust_regression(
+                                merged['price1'], merged['price2'], method='theil-sen'
+                            )
+                        else:
+                            regression_result = AnalyticsEngine.calculate_robust_regression(
+                                merged['price1'], merged['price2'], method='huber'
+                            )
+                        
+                        if regression_result:
+                            hedge_ratio = regression_result['hedge_ratio']
+                            intercept = regression_result.get('intercept', 0)
+                            merged['spread'] = AnalyticsEngine.calculate_spread(
+                                merged['price1'], merged['price2'], hedge_ratio, intercept
+                            )
                     
                     if regression_result:
-                        hedge_ratio = regression_result['hedge_ratio']
-                        intercept = regression_result.get('intercept', 0)
-                        
-                        merged['spread'] = AnalyticsEngine.calculate_spread(
-                            merged['price1'], merged['price2'], hedge_ratio, intercept
-                        )
                         merged['zscore'] = AnalyticsEngine.calculate_zscore(merged['spread'], rolling_window)
                         merged['correlation'] = AnalyticsEngine.calculate_rolling_correlation(
                             merged['price1'], merged['price2'], rolling_window
@@ -323,6 +356,106 @@ with tab1:
                         fig.update_yaxes(title_text="Z-Score", row=3, col=1)
                         
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        if regression_type == "Kalman Filter" and 'hedge_ratio' in merged.columns:
+                            st.subheader("Dynamic Hedge Ratio (Kalman Filter)")
+                            
+                            fig_kalman = go.Figure()
+                            fig_kalman.add_trace(go.Scatter(
+                                x=merged['timestamp'],
+                                y=merged['hedge_ratio'],
+                                mode='lines',
+                                name='Hedge Ratio',
+                                line=dict(color='purple', width=2)
+                            ))
+                            
+                            fig_kalman.update_layout(
+                                title="Time-Varying Hedge Ratio",
+                                xaxis_title="Time",
+                                yaxis_title="Hedge Ratio",
+                                height=300,
+                                hovermode='x unified'
+                            )
+                            
+                            st.plotly_chart(fig_kalman, use_container_width=True)
+                        
+                        st.divider()
+                        st.subheader("📊 Mean-Reversion Backtest")
+                        
+                        bcol1, bcol2, bcol3, bcol4 = st.columns(4)
+                        
+                        with bcol1:
+                            entry_z = st.number_input("Entry Z-Score", value=2.0, min_value=0.5, max_value=5.0, step=0.1)
+                        
+                        with bcol2:
+                            exit_z = st.number_input("Exit Z-Score", value=0.0, min_value=-1.0, max_value=1.0, step=0.1)
+                        
+                        with bcol3:
+                            initial_cap = st.number_input("Initial Capital", value=100000, min_value=1000, step=10000)
+                        
+                        with bcol4:
+                            run_backtest = st.button("▶️ Run Backtest", use_container_width=True)
+                        
+                        if run_backtest:
+                            backtest_engine = MeanReversionBacktest(
+                                entry_threshold=entry_z,
+                                exit_threshold=exit_z
+                            )
+                            
+                            results = backtest_engine.backtest(merged, initial_capital=initial_cap)
+                            
+                            if results and 'total_trades' in results and results['total_trades'] > 0:
+                                st.success(f"Backtest Complete - {results['total_trades']} trades executed")
+                                
+                                mcol1, mcol2, mcol3, mcol4, mcol5 = st.columns(5)
+                                
+                                with mcol1:
+                                    st.metric("Total Return", f"{results['total_return']:.2f}%")
+                                
+                                with mcol2:
+                                    st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+                                
+                                with mcol3:
+                                    st.metric("Max Drawdown", f"{results['max_drawdown']:.2f}%")
+                                
+                                with mcol4:
+                                    st.metric("Win Rate", f"{results['win_rate']:.1f}%")
+                                
+                                with mcol5:
+                                    st.metric("Avg Win/Loss", f"{results['avg_win']:.2f} / {results['avg_loss']:.2f}")
+                                
+                                fig_equity = go.Figure()
+                                fig_equity.add_trace(go.Scatter(
+                                    x=merged['timestamp'],
+                                    y=results['equity_curve'],
+                                    mode='lines',
+                                    name='Equity',
+                                    line=dict(color='green', width=2)
+                                ))
+                                
+                                fig_equity.update_layout(
+                                    title="Equity Curve",
+                                    xaxis_title="Time",
+                                    yaxis_title="Capital ($)",
+                                    height=400
+                                )
+                                
+                                st.plotly_chart(fig_equity, use_container_width=True)
+                                
+                                trades_df = backtest_engine.get_trades_dataframe()
+                                if not trades_df.empty:
+                                    st.write("Trade History:")
+                                    st.dataframe(trades_df, use_container_width=True, hide_index=True)
+                                    
+                                    trades_csv = trades_df.to_csv(index=False)
+                                    st.download_button(
+                                        label="📥 Download Trades (CSV)",
+                                        data=trades_csv,
+                                        file_name=f"backtest_trades_{symbol1}_{symbol2}.csv",
+                                        mime="text/csv"
+                                    )
+                            else:
+                                st.info(results.get('message', 'No trades executed with current parameters'))
                         
                         if run_adf:
                             st.subheader("Stationarity Test (ADF)")

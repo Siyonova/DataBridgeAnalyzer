@@ -77,12 +77,104 @@ class AnalyticsEngine:
                     'intercept': intercept,
                     'method': 'Huber'
                 }
+            elif method.lower() == 'theil-sen':
+                return AnalyticsEngine.calculate_theilsen_regression(x_data, y_data)
             else:
                 return AnalyticsEngine.calculate_ols_regression(x_data, y_data)
         
         except Exception as e:
             logger.error(f"Error in robust regression: {e}")
             return {}
+    
+    @staticmethod
+    def calculate_theilsen_regression(x_data: pd.Series, y_data: pd.Series) -> Dict:
+        if len(x_data) < 2 or len(y_data) < 2:
+            return {}
+        
+        try:
+            from sklearn.linear_model import TheilSenRegressor
+            
+            X = x_data.values.reshape(-1, 1)
+            y = y_data.values
+            
+            model = TheilSenRegressor(random_state=42)
+            model.fit(X, y)
+            
+            hedge_ratio = float(model.coef_[0])
+            intercept = float(model.intercept_)
+            
+            from sklearn.metrics import r2_score
+            r_squared = float(r2_score(y, model.predict(X)))
+            
+            return {
+                'hedge_ratio': hedge_ratio,
+                'intercept': intercept,
+                'r_squared': r_squared,
+                'method': 'Theil-Sen'
+            }
+        except Exception as e:
+            logger.error(f"Error in Theil-Sen regression: {e}")
+            return {}
+    
+    @staticmethod
+    def calculate_kalman_hedge_ratio(x_data: pd.Series, y_data: pd.Series, 
+                                     delta: float = 1e-5, vt: float = 1e-3) -> pd.DataFrame:
+        if len(x_data) < 2 or len(y_data) < 2:
+            return pd.DataFrame()
+        
+        try:
+            n = len(x_data)
+            x = x_data.values
+            y = y_data.values
+            
+            wt = delta / (1 - delta) * np.eye(2)
+            
+            beta = np.zeros(n)
+            intercept = np.zeros(n)
+            P = np.zeros(n)
+            
+            state = np.zeros(2)
+            R = np.eye(2)
+            
+            for t in range(n):
+                if t == 0:
+                    X = np.array([x[t], 1.0]).reshape((1, 2))
+                    state = np.linalg.lstsq(X, np.array([y[t]]), rcond=None)[0].flatten()
+                    beta[t] = state[0]
+                    intercept[t] = state[1]
+                    R = np.eye(2)
+                else:
+                    R_pred = R + wt
+                    
+                    F = np.array([x[t], 1.0]).reshape((1, 2))
+                    
+                    y_pred = F.dot(state)
+                    et = y[t] - y_pred[0]
+                    
+                    Qt = F.dot(R_pred).dot(F.T)[0, 0] + vt
+                    
+                    Kt = R_pred.dot(F.T) / Qt
+                    
+                    state = state + Kt.flatten() * et
+                    
+                    R = (np.eye(2) - Kt.dot(F)).dot(R_pred)
+                    
+                    beta[t] = state[0]
+                    intercept[t] = state[1]
+                
+                P[t] = R[0, 0]
+            
+            result = pd.DataFrame({
+                'hedge_ratio': beta,
+                'intercept': intercept,
+                'variance': P
+            })
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Error in Kalman Filter: {e}")
+            return pd.DataFrame()
     
     @staticmethod
     def calculate_spread(x_data: pd.Series, y_data: pd.Series, hedge_ratio: float, intercept: float = 0) -> pd.Series:
@@ -167,6 +259,64 @@ class AnalyticsEngine:
         
         excess_returns = returns - risk_free_rate
         return float(excess_returns.mean() / returns.std() * np.sqrt(252))
+    
+    @staticmethod
+    def apply_liquidity_filter(df: pd.DataFrame, min_volume: float = 0, rolling_window: int = 20) -> pd.DataFrame:
+        if df.empty or 'volume' not in df.columns:
+            return df
+        
+        try:
+            df_filtered = df.copy()
+            
+            df_filtered['rolling_volume'] = df_filtered['volume'].rolling(
+                window=rolling_window, min_periods=1
+            ).mean()
+            
+            df_filtered['volume_filter'] = df_filtered['rolling_volume'] > min_volume
+            
+            if min_volume > 0:
+                df_filtered = df_filtered[df_filtered['volume_filter']].copy()
+            
+            return df_filtered
+        
+        except Exception as e:
+            logger.error(f"Error applying liquidity filter: {e}")
+            return df
+    
+    @staticmethod
+    def calculate_liquidity_score(df: pd.DataFrame, symbol: str) -> Dict:
+        if df.empty or 'volume' not in df.columns:
+            return {}
+        
+        try:
+            symbol_data = df[df['symbol'] == symbol] if 'symbol' in df.columns else df
+            
+            if symbol_data.empty:
+                return {}
+            
+            total_volume = symbol_data['volume'].sum()
+            avg_volume = symbol_data['volume'].mean()
+            volume_std = symbol_data['volume'].std()
+            volume_cv = volume_std / avg_volume if avg_volume > 0 else 0
+            
+            recent_volume = symbol_data.tail(20)['volume'].mean() if len(symbol_data) >= 20 else avg_volume
+            
+            liquidity_trend = 'INCREASING' if recent_volume > avg_volume * 1.1 else \
+                             'DECREASING' if recent_volume < avg_volume * 0.9 else 'STABLE'
+            
+            return {
+                'total_volume': float(total_volume),
+                'avg_volume': float(avg_volume),
+                'volume_std': float(volume_std),
+                'volume_cv': float(volume_cv),
+                'recent_volume': float(recent_volume),
+                'liquidity_trend': liquidity_trend,
+                'is_liquid': recent_volume > avg_volume * 0.5
+            }
+        
+        except Exception as e:
+            logger.error(f"Error calculating liquidity score: {e}")
+            return {}
     
     @staticmethod
     def generate_summary_stats(df: pd.DataFrame, symbol: str, timeframe: str = '1min') -> pd.DataFrame:

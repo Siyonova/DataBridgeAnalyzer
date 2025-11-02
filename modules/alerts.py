@@ -1,6 +1,8 @@
 from typing import Dict, List, Callable, Optional
 from datetime import datetime
 import logging
+import requests
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -8,13 +10,15 @@ logger = logging.getLogger(__name__)
 
 class AlertRule:
     def __init__(self, rule_id: str, name: str, condition: str, threshold: float, 
-                 symbol: Optional[str] = None, callback: Optional[Callable] = None):
+                 symbol: Optional[str] = None, callback: Optional[Callable] = None,
+                 webhook_url: Optional[str] = None):
         self.rule_id = rule_id
         self.name = name
         self.condition = condition
         self.threshold = threshold
         self.symbol = symbol
         self.callback = callback
+        self.webhook_url = webhook_url
         self.triggered_count = 0
         self.last_triggered = None
     
@@ -44,8 +48,45 @@ class AlertRule:
                     self.callback(self, value, symbol)
                 except Exception as e:
                     logger.error(f"Error in alert callback: {e}")
+            
+            if self.webhook_url:
+                try:
+                    self._send_webhook(value, symbol)
+                except Exception as e:
+                    logger.error(f"Error sending webhook: {e}")
         
         return triggered
+    
+    def _send_webhook(self, value: float, symbol: Optional[str] = None):
+        payload = {
+            'rule_id': self.rule_id,
+            'name': self.name,
+            'condition': self.condition,
+            'threshold': self.threshold,
+            'current_value': value,
+            'symbol': symbol,
+            'timestamp': datetime.utcnow().isoformat(),
+            'message': f"{self.name} {self.condition} {self.threshold} (current: {value:.4f})"
+        }
+        
+        if symbol:
+            payload['message'] = f"[{symbol}] " + payload['message']
+        
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Webhook sent successfully to {self.webhook_url}")
+            else:
+                logger.warning(f"Webhook returned status {response.status_code}")
+        
+        except Exception as e:
+            logger.error(f"Failed to send webhook: {e}")
     
     def to_dict(self) -> Dict:
         return {
@@ -54,6 +95,125 @@ class AlertRule:
             'condition': self.condition,
             'threshold': self.threshold,
             'symbol': self.symbol,
+            'webhook_url': self.webhook_url if self.webhook_url else None,
+            'triggered_count': self.triggered_count,
+            'last_triggered': self.last_triggered.isoformat() if self.last_triggered else None
+        }
+
+
+class MultiConditionAlertRule:
+    def __init__(self, rule_id: str, name: str, conditions: List[Dict], logic: str = 'AND',
+                 symbol: Optional[str] = None, callback: Optional[Callable] = None,
+                 webhook_url: Optional[str] = None):
+        self.rule_id = rule_id
+        self.name = name
+        self.conditions = conditions
+        self.logic = logic.upper()
+        self.symbol = symbol
+        self.callback = callback
+        self.webhook_url = webhook_url
+        self.triggered_count = 0
+        self.last_triggered = None
+    
+    def check(self, metrics: Dict[str, float], symbol: Optional[str] = None) -> bool:
+        if self.symbol and symbol and self.symbol != symbol:
+            return False
+        
+        results = []
+        
+        for condition in self.conditions:
+            metric_name = condition.get('metric')
+            operator = condition.get('condition')
+            threshold = condition.get('threshold')
+            
+            if metric_name not in metrics:
+                results.append(False)
+                continue
+            
+            value = metrics[metric_name]
+            
+            if operator == '>':
+                results.append(value > threshold)
+            elif operator == '<':
+                results.append(value < threshold)
+            elif operator == '>=':
+                results.append(value >= threshold)
+            elif operator == '<=':
+                results.append(value <= threshold)
+            elif operator == '==':
+                results.append(abs(value - threshold) < 1e-6)
+            else:
+                results.append(False)
+        
+        if self.logic == 'AND':
+            triggered = all(results)
+        elif self.logic == 'OR':
+            triggered = any(results)
+        else:
+            triggered = False
+        
+        if triggered:
+            self.triggered_count += 1
+            self.last_triggered = datetime.utcnow()
+            
+            if self.callback:
+                try:
+                    self.callback(self, metrics, symbol)
+                except Exception as e:
+                    logger.error(f"Error in multi-condition alert callback: {e}")
+            
+            if self.webhook_url:
+                try:
+                    self._send_webhook(metrics, symbol)
+                except Exception as e:
+                    logger.error(f"Error sending webhook: {e}")
+        
+        return triggered
+    
+    def _send_webhook(self, metrics: Dict[str, float], symbol: Optional[str] = None):
+        conditions_str = f" {self.logic} ".join([
+            f"{c['metric']} {c['condition']} {c['threshold']}" 
+            for c in self.conditions
+        ])
+        
+        payload = {
+            'rule_id': self.rule_id,
+            'name': self.name,
+            'conditions': self.conditions,
+            'logic': self.logic,
+            'metrics': metrics,
+            'symbol': symbol,
+            'timestamp': datetime.utcnow().isoformat(),
+            'message': f"Multi-condition alert: {conditions_str}"
+        }
+        
+        if symbol:
+            payload['message'] = f"[{symbol}] " + payload['message']
+        
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Webhook sent successfully to {self.webhook_url}")
+            else:
+                logger.warning(f"Webhook returned status {response.status_code}")
+        
+        except Exception as e:
+            logger.error(f"Failed to send webhook: {e}")
+    
+    def to_dict(self) -> Dict:
+        return {
+            'rule_id': self.rule_id,
+            'name': self.name,
+            'conditions': self.conditions,
+            'logic': self.logic,
+            'symbol': self.symbol,
+            'webhook_url': self.webhook_url if self.webhook_url else None,
             'triggered_count': self.triggered_count,
             'last_triggered': self.last_triggered.isoformat() if self.last_triggered else None
         }
