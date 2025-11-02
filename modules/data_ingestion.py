@@ -100,20 +100,40 @@ class FileDataLoader:
             df = pd.DataFrame(data)
             
             if 'ts' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['ts'])
+                df['timestamp'] = pd.to_datetime(df['ts'], utc=True, errors='coerce')
             elif 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            elif 'T' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['T'], unit='ms', utc=True, errors='coerce')
+            elif 'E' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['E'], unit='ms', utc=True, errors='coerce')
             else:
-                raise ValueError("No timestamp field found in NDJSON data")
+                raise ValueError("No timestamp field found in NDJSON data (tried: ts, timestamp, T, E)")
+            
+            df = df.dropna(subset=['timestamp'])
+            
+            if df.empty:
+                raise ValueError("No valid timestamps found in data")
             
             required_fields = ['symbol', 'price', 'size']
+            missing_fields = [f for f in required_fields if f not in df.columns]
+            
+            if 's' in df.columns and 'symbol' not in df.columns:
+                df['symbol'] = df['s']
+            if 'p' in df.columns and 'price' not in df.columns:
+                df['price'] = df['p']
+            if ('q' in df.columns or 'qty' in df.columns) and 'size' not in df.columns:
+                df['size'] = df.get('q', df.get('qty', 0))
+            
             for field in required_fields:
                 if field not in df.columns:
                     raise ValueError(f"Missing required field: {field}")
             
-            df['symbol'] = df['symbol'].str.upper()
-            df['price'] = pd.to_numeric(df['price'])
-            df['size'] = pd.to_numeric(df['size'])
+            df['symbol'] = df['symbol'].astype(str).str.upper()
+            df['price'] = pd.to_numeric(df['price'], errors='coerce')
+            df['size'] = pd.to_numeric(df['size'], errors='coerce')
+            
+            df = df.dropna(subset=['price', 'size'])
             
             logger.info(f"Loaded {len(df)} records from NDJSON file")
             return df[['symbol', 'timestamp', 'price', 'size']]
@@ -136,7 +156,8 @@ class FileDataLoader:
             if timestamp_col is None:
                 raise ValueError("No timestamp column found in CSV file")
             
-            df['timestamp'] = pd.to_datetime(df[timestamp_col])
+            df['timestamp'] = pd.to_datetime(df[timestamp_col], utc=True, errors='coerce')
+            df = df.dropna(subset=['timestamp'])
             
             if 'symbol' not in df.columns:
                 symbol_col = None
