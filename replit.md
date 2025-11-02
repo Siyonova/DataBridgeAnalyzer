@@ -8,7 +8,17 @@ The system ingests real-time tick data from Binance Futures WebSocket API, store
 
 ## Recent Changes
 
-**November 2, 2025**
+**November 2, 2025 - UX Enhancement Release**
+- **Interactive Onboarding System**: 6-step tutorial guides new users through data sources, symbol selection, analytics navigation, and alert configuration
+- **Analysis Presets**: 4 pre-configured templates for common trading pairs (BTC/ETH, BTC/BNB, ETH/BNB, Multi-Pair Basket) with optimal parameters
+- **Real-Time Alert Notifications**: Toast notifications, sidebar badge counters, and comprehensive alert history display
+- **Timezone Management**: User-selectable timezone with 10 common zones and automatic timestamp localization throughout all charts and tables
+- **HTML Report Export**: Generate comprehensive analytics reports with summary statistics and alert history for offline review
+- **Enhanced Error Handling**: User-friendly error messages with troubleshooting steps for file uploads, WebSocket errors, and data processing issues
+- **Dark Mode Theme**: Toggle-able dark theme with custom CSS for comfortable viewing in low-light environments
+- **Search & Filter**: Advanced search functionality in data tables with symbol filtering, record limits, and text search
+
+**November 2, 2025 - Core Fixes**
 - **CRITICAL FIX**: Resolved resampling bug by refactoring DataFrame creation logic in `modules/resampler.py` and `modules/analytics.py` to explicitly construct DataFrames instead of using `.agg()` method that was returning SeriesGroupBy objects
 - **Pandas Compatibility**: Updated timeframe mapping to use modern pandas syntax ('1min' instead of deprecated '1T')
 - **Complete Feature Set**: All visualization features now fully operational:
