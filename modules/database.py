@@ -155,7 +155,8 @@ class DatabaseManager:
             conn.close()
             
             if not df.empty:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce', format='mixed')
+                df = df.dropna(subset=['timestamp'])
             
             return df
     
@@ -179,7 +180,8 @@ class DatabaseManager:
             conn.close()
             
             if not df.empty:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce', format='mixed')
+                df = df.dropna(subset=['timestamp'])
                 df = df.sort_values('timestamp')
             
             return df
@@ -206,7 +208,8 @@ class DatabaseManager:
             conn.close()
             
             if not df.empty:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce', format='mixed')
+                df = df.dropna(subset=['timestamp'])
             
             return df
     
