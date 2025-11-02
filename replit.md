@@ -6,6 +6,23 @@ This is a real-time cryptocurrency analytics platform designed for quantitative 
 
 The system ingests real-time tick data from Binance Futures WebSocket API, stores it in a local SQLite database, performs various quantitative analyses (regression, correlation, stationarity tests), and visualizes the results through an interactive Streamlit dashboard.
 
+## Recent Changes
+
+**November 2, 2025**
+- **CRITICAL FIX**: Resolved resampling bug by refactoring DataFrame creation logic in `modules/resampler.py` and `modules/analytics.py` to explicitly construct DataFrames instead of using `.agg()` method that was returning SeriesGroupBy objects
+- **Pandas Compatibility**: Updated timeframe mapping to use modern pandas syntax ('1min' instead of deprecated '1T')
+- **Complete Feature Set**: All visualization features now fully operational:
+  - VWAP (Volume-Weighted Average Price) calculation for both tick and OHLCV data
+  - VWAP vs Price comparison overlay charts
+  - Rolling correlation time-series plots
+  - ADF test p-value visualization with bar charts and gauge indicators
+  - Hedge ratio regression scatter plots with fitted lines
+  - Alert markers/annotations on spread and z-score charts
+  - Multi-symbol summary table with live stats and CSV export
+  - Live price line charts alongside candlestick charts
+  - Browser stream URL input for external WebSocket data integration
+- **Tab Organization**: Dashboard reorganized into five distinct sections: Dashboard/Home, Analytics, Correlation Matrix, Alerts, and Data Management & Export
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -35,14 +52,18 @@ Preferred communication style: Simple, everyday language.
    - **Kalman Filter**: Dynamic hedge ratio estimation with time-varying parameters
    - Spread and z-score calculations for pairs trading
    - Augmented Dickey-Fuller (ADF) test for stationarity
+   - **VWAP Calculation**: Supports both tick-level (price/size) and OHLCV (high/low/close/volume) data
    - **Liquidity Filters**: Volume-based filtering and liquidity scoring
    - **Libraries**: NumPy, Pandas, SciPy, scikit-learn, statsmodels
    - **Design Choice**: Stateless static methods for pure functional analytics
+   - **Resampling Fix (Nov 2025)**: Explicit DataFrame construction prevents SeriesGroupBy attribute errors
 
 3. **Data Resampling** (`modules/resampler.py`)
    - Tick data aggregation to OHLCV (candlestick) data
    - Multi-timeframe support: 1s, 1m, 5m, 15m, 1h, 1d
    - **Design Choice**: Pandas resample for efficient time-series aggregation
+   - **Implementation**: Explicit DataFrame construction from resampled Series to ensure type safety
+   - **Pandas Compatibility**: Uses modern timeframe notation (e.g., '1min' not '1T')
 
 4. **Alert System** (`modules/alerts.py`)
    - Rule-based alerting on metrics (z-score, price, spread, correlation)
