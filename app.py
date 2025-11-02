@@ -295,9 +295,20 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     st.header("Pair Analysis & Statistical Arbitrage")
     
-    col1, col2, col3 = st.columns(3)
+    # Get available symbols from database
+    tick_check = db.get_tick_data(limit=1)
+    if not tick_check.empty:
+        available_symbols = db.get_tick_data(limit=1000)['symbol'].unique().tolist()
+        st.info(f"📊 Found {len(available_symbols)} symbols in database: {', '.join(available_symbols)}")
+    else:
+        available_symbols = st.session_state.selected_symbols
+        st.warning("⚠️ No data in database yet. Start WebSocket stream or upload a file to see analytics.")
     
-    available_symbols = db.get_tick_data(limit=1000)['symbol'].unique().tolist() if not db.get_tick_data(limit=1).empty else st.session_state.selected_symbols
+    if len(available_symbols) < 2:
+        st.error("🚨 Need at least 2 different symbols for pairs trading analysis. Please add more symbols via WebSocket or file upload.")
+        st.stop()
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         symbol1 = st.selectbox("Symbol 1", available_symbols, index=0 if len(available_symbols) > 0 else 0)
@@ -323,13 +334,28 @@ with tab1:
         if regression_type == "Kalman Filter":
             kalman_delta = st.number_input("Kalman Δ", value=1e-5, format="%.1e", help="Transition covariance")
     
-    if symbol1 and symbol2 and symbol1 != symbol2:
-        tick_data = db.get_tick_data(limit=5000)
+    if not symbol1 or not symbol2:
+        st.warning("⚠️ Please select both Symbol 1 and Symbol 2")
+    elif symbol1 == symbol2:
+        st.error("🚨 Symbol 1 and Symbol 2 must be different for pairs trading analysis")
+    else:
+        with st.spinner(f'Loading data for {symbol1} and {symbol2}...'):
+            tick_data = db.get_tick_data(limit=5000)
         
-        if not tick_data.empty and symbol1 in tick_data['symbol'].values and symbol2 in tick_data['symbol'].values:
-            resampled_df = DataResampler.resample_ticks_to_ohlcv(tick_data, timeframe)
+        if tick_data.empty:
+            st.warning("⚠️ No tick data found in database")
+        elif symbol1 not in tick_data['symbol'].values:
+            st.error(f"🚨 {symbol1} not found in database")
+        elif symbol2 not in tick_data['symbol'].values:
+            st.error(f"🚨 {symbol2} not found in database")
+        else:
+            st.success(f"✅ Found tick data for both symbols (Total: {len(tick_data)} ticks)")
+            
+            with st.spinner(f'Resampling to {timeframe} OHLCV bars...'):
+                resampled_df = DataResampler.resample_ticks_to_ohlcv(tick_data, timeframe)
             
             if not resampled_df.empty:
+                st.info(f"📊 Created {len(resampled_df)} OHLCV bars")
                 db.insert_ohlcv_batch([{
                     'symbol': row['symbol'],
                     'timestamp': row['timestamp'].isoformat(),
@@ -340,11 +366,17 @@ with tab1:
                     'close': row['close'],
                     'volume': row['volume']
                 } for _, row in resampled_df.iterrows()])
+            else:
+                st.warning(f"⚠️ Could not create OHLCV bars - insufficient tick data")
             
             ohlcv1 = db.get_ohlcv_data(symbol1, timeframe, limit=500)
             ohlcv2 = db.get_ohlcv_data(symbol2, timeframe, limit=500)
             
-            if not ohlcv1.empty and not ohlcv2.empty:
+            if ohlcv1.empty:
+                st.error(f"🚨 No OHLCV data for {symbol1} at {timeframe} timeframe")
+            elif ohlcv2.empty:
+                st.error(f"🚨 No OHLCV data for {symbol2} at {timeframe} timeframe")
+            elif not ohlcv1.empty and not ohlcv2.empty:
                 merged = pd.merge(
                     ohlcv1[['timestamp', 'close']].rename(columns={'close': 'price1'}),
                     ohlcv2[['timestamp', 'close']].rename(columns={'close': 'price2'}),
