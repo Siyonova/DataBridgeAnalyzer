@@ -9,11 +9,11 @@ logger = logging.getLogger(__name__)
 
 class DataResampler:
     TIMEFRAME_MAP = {
-        '1s': '1S',
-        '1m': '1T',
-        '5m': '5T',
-        '15m': '15T',
-        '1h': '1H',
+        '1s': '1s',
+        '1m': '1min',
+        '5m': '5min',
+        '15m': '15min',
+        '1h': '1h',
         '1d': '1D'
     }
     
@@ -42,16 +42,17 @@ class DataResampler:
                     symbol_df = symbol_df.sort_values('timestamp')
                     symbol_df.set_index('timestamp', inplace=True)
                     
-                    ohlcv = symbol_df['price'].resample(pandas_timeframe).agg([
-                        ('open', 'first'),
-                        ('high', 'max'),
-                        ('low', 'min'),
-                        ('close', 'last')
-                    ])
+                    price_resampled = symbol_df['price'].resample(pandas_timeframe)
+                    
+                    ohlcv = pd.DataFrame({
+                        'open': price_resampled.first(),
+                        'high': price_resampled.max(),
+                        'low': price_resampled.min(),
+                        'close': price_resampled.last()
+                    })
                     
                     if 'size' in symbol_df.columns:
-                        volume = symbol_df['size'].resample(pandas_timeframe).sum()
-                        ohlcv['volume'] = volume
+                        ohlcv['volume'] = symbol_df['size'].resample(pandas_timeframe).sum()
                     else:
                         ohlcv['volume'] = 0
                     
@@ -65,16 +66,17 @@ class DataResampler:
                 df = df.sort_values('timestamp')
                 df.set_index('timestamp', inplace=True)
                 
-                ohlcv = df['price'].resample(pandas_timeframe).agg([
-                    ('open', 'first'),
-                    ('high', 'max'),
-                    ('low', 'min'),
-                    ('close', 'last')
-                ])
+                price_resampled = df['price'].resample(pandas_timeframe)
+                
+                ohlcv = pd.DataFrame({
+                    'open': price_resampled.first(),
+                    'high': price_resampled.max(),
+                    'low': price_resampled.min(),
+                    'close': price_resampled.last()
+                })
                 
                 if 'size' in df.columns:
-                    volume = df['size'].resample(pandas_timeframe).sum()
-                    ohlcv['volume'] = volume
+                    ohlcv['volume'] = df['size'].resample(pandas_timeframe).sum()
                 else:
                     ohlcv['volume'] = 0
                 

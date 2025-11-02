@@ -319,6 +319,40 @@ class AnalyticsEngine:
             return {}
     
     @staticmethod
+    def calculate_vwap(df: pd.DataFrame, symbol: Optional[str] = None) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame()
+        
+        try:
+            symbol_data = df[df['symbol'] == symbol].copy() if symbol and 'symbol' in df.columns else df.copy()
+            
+            if symbol_data.empty:
+                return pd.DataFrame()
+            
+            symbol_data = symbol_data.sort_values('timestamp')
+            
+            if 'price' in symbol_data.columns and 'size' in symbol_data.columns:
+                symbol_data['price_volume'] = symbol_data['price'] * symbol_data['size']
+                symbol_data['cumulative_pv'] = symbol_data['price_volume'].cumsum()
+                symbol_data['cumulative_volume'] = symbol_data['size'].cumsum()
+                symbol_data['vwap'] = symbol_data['cumulative_pv'] / symbol_data['cumulative_volume']
+            elif 'high' in symbol_data.columns and 'low' in symbol_data.columns and 'close' in symbol_data.columns and 'volume' in symbol_data.columns:
+                symbol_data['typical_price'] = (symbol_data['high'] + symbol_data['low'] + symbol_data['close']) / 3
+                symbol_data['price_volume'] = symbol_data['typical_price'] * symbol_data['volume']
+                symbol_data['cumulative_pv'] = symbol_data['price_volume'].cumsum()
+                symbol_data['cumulative_volume'] = symbol_data['volume'].cumsum()
+                symbol_data['vwap'] = symbol_data['cumulative_pv'] / symbol_data['cumulative_volume']
+            else:
+                logger.warning("VWAP calculation requires price/size or OHLC/volume data")
+                return pd.DataFrame()
+            
+            return symbol_data[['timestamp', 'vwap']].copy()
+        
+        except Exception as e:
+            logger.error(f"Error calculating VWAP: {e}")
+            return pd.DataFrame()
+    
+    @staticmethod
     def generate_summary_stats(df: pd.DataFrame, symbol: str, timeframe: str = '1min') -> pd.DataFrame:
         if df.empty:
             return pd.DataFrame()
@@ -332,17 +366,18 @@ class AnalyticsEngine:
             symbol_data = symbol_data.sort_values('timestamp')
             symbol_data.set_index('timestamp', inplace=True)
             
-            resampled = symbol_data['price'].resample(timeframe).agg([
-                ('open', 'first'),
-                ('high', 'max'),
-                ('low', 'min'),
-                ('close', 'last'),
-                ('count', 'count')
-            ])
+            price_resampled = symbol_data['price'].resample(timeframe)
+            
+            resampled = pd.DataFrame({
+                'open': price_resampled.first(),
+                'high': price_resampled.max(),
+                'low': price_resampled.min(),
+                'close': price_resampled.last(),
+                'count': price_resampled.count()
+            })
             
             if 'size' in symbol_data.columns:
-                volume = symbol_data['size'].resample(timeframe).sum()
-                resampled['volume'] = volume
+                resampled['volume'] = symbol_data['size'].resample(timeframe).sum()
             else:
                 resampled['volume'] = 0
             

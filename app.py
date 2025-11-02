@@ -83,13 +83,28 @@ with st.sidebar:
     
     data_source = st.selectbox(
         "Data Source",
-        ["Live WebSocket (Binance)", "Upload File (NDJSON/CSV)", "View Stored Data"],
+        ["Live WebSocket (Binance)", "Browser Stream URL", "Upload File (NDJSON/CSV)", "View Stored Data"],
         help="Choose your data source"
     )
     
     st.divider()
     
-    if data_source == "Live WebSocket (Binance)":
+    if data_source == "Browser Stream URL":
+        st.subheader("External WebSocket Stream")
+        st.info("Connect to WebSocket server on port 5001 to send data")
+        
+        st.code("""
+# WebSocket Endpoint:
+ws://localhost:5001
+
+# REST Endpoints:
+POST http://localhost:5001/api/tick
+POST http://localhost:5001/api/ticks/batch
+        """, language="text")
+        
+        st.markdown("**Your HTML collector can stream directly to this endpoint!**")
+    
+    elif data_source == "Live WebSocket (Binance)":
         st.subheader("WebSocket Settings")
         
         symbols_input = st.text_input(
@@ -178,11 +193,11 @@ with st.sidebar:
         st.rerun()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 Pair Analysis", 
-    "📊 Price Charts", 
-    "🔔 Alerts", 
-    "📋 Summary Stats",
-    "⚙️ Advanced Analytics"
+    "🏠 Dashboard", 
+    "📊 Analytics", 
+    "🔗 Correlation", 
+    "🔔 Alerts",
+    "💾 Data & Export"
 ])
 
 with tab1:
@@ -355,7 +370,72 @@ with tab1:
                         fig.update_yaxes(title_text="Spread", row=2, col=1)
                         fig.update_yaxes(title_text="Z-Score", row=3, col=1)
                         
+                        recent_alerts = db.get_recent_alerts(limit=20)
+                        if not recent_alerts.empty:
+                            spread_alerts = recent_alerts[recent_alerts['alert_type'].str.contains('Spread', na=False)]
+                            z_alerts = recent_alerts[recent_alerts['alert_type'].str.contains('Z-Score', na=False)]
+                            
+                            for _, alert_row in spread_alerts.iterrows():
+                                try:
+                                    alert_time = pd.to_datetime(alert_row['timestamp'])
+                                    if alert_time >= merged['timestamp'].min() and alert_time <= merged['timestamp'].max():
+                                        closest_idx = (merged['timestamp'] - alert_time).abs().idxmin()
+                                        alert_value = merged.loc[closest_idx, 'spread']
+                                        fig.add_trace(
+                                            go.Scatter(x=[merged.loc[closest_idx, 'timestamp']], y=[alert_value],
+                                                      mode='markers', marker=dict(size=12, color='red', symbol='star'),
+                                                      name='Spread Alert', showlegend=False),
+                                            row=2, col=1
+                                        )
+                                except Exception:
+                                    pass
+                            
+                            for _, alert_row in z_alerts.iterrows():
+                                try:
+                                    alert_time = pd.to_datetime(alert_row['timestamp'])
+                                    if alert_time >= merged['timestamp'].min() and alert_time <= merged['timestamp'].max():
+                                        closest_idx = (merged['timestamp'] - alert_time).abs().idxmin()
+                                        alert_value = merged.loc[closest_idx, 'zscore']
+                                        fig.add_trace(
+                                            go.Scatter(x=[merged.loc[closest_idx, 'timestamp']], y=[alert_value],
+                                                      mode='markers', marker=dict(size=12, color='orange', symbol='diamond'),
+                                                      name='Z-Score Alert', showlegend=False),
+                                            row=3, col=1
+                                        )
+                                except Exception:
+                                    pass
+                        
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.subheader("Hedge Ratio Regression Scatter Plot")
+                        fig_scatter = go.Figure()
+                        fig_scatter.add_trace(go.Scatter(
+                            x=merged['price1'],
+                            y=merged['price2'],
+                            mode='markers',
+                            name='Data Points',
+                            marker=dict(size=5, color='blue', opacity=0.5)
+                        ))
+                        
+                        x_range = np.linspace(merged['price1'].min(), merged['price1'].max(), 100)
+                        y_pred = hedge_ratio * x_range + intercept
+                        fig_scatter.add_trace(go.Scatter(
+                            x=x_range,
+                            y=y_pred,
+                            mode='lines',
+                            name=f'Regression Line (β={hedge_ratio:.4f})',
+                            line=dict(color='red', width=2)
+                        ))
+                        
+                        fig_scatter.update_layout(
+                            title=f"{symbol2} vs {symbol1} - Hedge Ratio Regression",
+                            xaxis_title=f"{symbol1} Price",
+                            yaxis_title=f"{symbol2} Price",
+                            height=400,
+                            showlegend=True
+                        )
+                        
+                        st.plotly_chart(fig_scatter, use_container_width=True)
                         
                         if regression_type == "Kalman Filter" and 'hedge_ratio' in merged.columns:
                             st.subheader("Dynamic Hedge Ratio (Kalman Filter)")
@@ -467,14 +547,61 @@ with tab1:
                                 st.metric("ADF Statistic", f"{adf_result.get('adf_statistic', 0):.4f}" if adf_result.get('adf_statistic') else "N/A")
                             
                             with col2:
-                                st.metric("P-Value", f"{adf_result.get('p_value', 0):.4f}" if adf_result.get('p_value') else "N/A")
+                                p_val = adf_result.get('p_value', 0)
+                                st.metric("P-Value", f"{p_val:.4f}" if p_val else "N/A")
                             
                             with col3:
                                 is_stationary = adf_result.get('is_stationary', False)
                                 st.metric("Stationary", "✅ Yes" if is_stationary else "❌ No")
                             
-                            if 'critical_values' in adf_result:
-                                st.write("Critical Values:", adf_result['critical_values'])
+                            if 'critical_values' in adf_result and p_val is not None:
+                                critical_vals = adf_result['critical_values']
+                                
+                                fig_adf = go.Figure()
+                                fig_adf.add_trace(go.Bar(
+                                    x=['1%', '5%', '10%', 'ADF Stat'],
+                                    y=[critical_vals.get('1%', 0), critical_vals.get('5%', 0), 
+                                       critical_vals.get('10%', 0), adf_result.get('adf_statistic', 0)],
+                                    marker_color=['red' if i < 3 else 'green' if is_stationary else 'orange' for i in range(4)],
+                                    text=[f"{critical_vals.get('1%', 0):.2f}", f"{critical_vals.get('5%', 0):.2f}",
+                                          f"{critical_vals.get('10%', 0):.2f}", f"{adf_result.get('adf_statistic', 0):.2f}"],
+                                    textposition='auto'
+                                ))
+                                
+                                fig_adf.update_layout(
+                                    title="ADF Test: Critical Values vs Test Statistic",
+                                    xaxis_title="Significance Level / Test",
+                                    yaxis_title="Value",
+                                    height=350,
+                                    showlegend=False
+                                )
+                                
+                                st.plotly_chart(fig_adf, use_container_width=True)
+                                
+                                fig_pval = go.Figure()
+                                fig_pval.add_trace(go.Indicator(
+                                    mode="gauge+number",
+                                    value=p_val,
+                                    domain={'x': [0, 1], 'y': [0, 1]},
+                                    title={'text': "P-Value"},
+                                    gauge={
+                                        'axis': {'range': [0, 1]},
+                                        'bar': {'color': "darkgreen" if p_val < 0.05 else "orange" if p_val < 0.1 else "red"},
+                                        'steps': [
+                                            {'range': [0, 0.01], 'color': "lightgreen"},
+                                            {'range': [0.01, 0.05], 'color': "lightyellow"},
+                                            {'range': [0.05, 1], 'color': "lightcoral"}
+                                        ],
+                                        'threshold': {
+                                            'line': {'color': "red", 'width': 4},
+                                            'thickness': 0.75,
+                                            'value': 0.05
+                                        }
+                                    }
+                                ))
+                                
+                                fig_pval.update_layout(height=300)
+                                st.plotly_chart(fig_pval, use_container_width=True)
                         
                         csv_data = merged.to_csv(index=False)
                         st.download_button(
@@ -538,6 +665,70 @@ with tab2:
             
             st.plotly_chart(fig, use_container_width=True)
             
+            st.divider()
+            st.subheader("💹 VWAP vs Price Comparison")
+            
+            tick_data_vwap = db.get_tick_data(symbol=chart_symbol, limit=5000)
+            
+            if not tick_data_vwap.empty and 'price' in tick_data_vwap.columns and 'size' in tick_data_vwap.columns:
+                vwap_df = AnalyticsEngine.calculate_vwap(tick_data_vwap, symbol=chart_symbol)
+                
+                if not vwap_df.empty:
+                    price_vs_vwap = pd.merge(
+                        tick_data_vwap[['timestamp', 'price']],
+                        vwap_df[['timestamp', 'vwap']],
+                        on='timestamp',
+                        how='inner'
+                    )
+                    
+                    if not price_vs_vwap.empty:
+                        fig_vwap = go.Figure()
+                        
+                        fig_vwap.add_trace(go.Scatter(
+                            x=price_vs_vwap['timestamp'],
+                            y=price_vs_vwap['price'],
+                            mode='lines',
+                            name='Price',
+                            line=dict(color='blue', width=1.5)
+                        ))
+                        
+                        fig_vwap.add_trace(go.Scatter(
+                            x=price_vs_vwap['timestamp'],
+                            y=price_vs_vwap['vwap'],
+                            mode='lines',
+                            name='VWAP',
+                            line=dict(color='red', width=2, dash='dash')
+                        ))
+                        
+                        fig_vwap.update_layout(
+                            title=f"{chart_symbol} - Price vs VWAP",
+                            xaxis_title="Time",
+                            yaxis_title="Price (USDT)",
+                            height=400,
+                            hovermode='x unified',
+                            showlegend=True
+                        )
+                        
+                        st.plotly_chart(fig_vwap, use_container_width=True)
+                        
+                        current_price = price_vs_vwap['price'].iloc[-1]
+                        current_vwap = price_vs_vwap['vwap'].iloc[-1]
+                        deviation = ((current_price - current_vwap) / current_vwap) * 100
+                        
+                        vcol1, vcol2, vcol3 = st.columns(3)
+                        with vcol1:
+                            st.metric("Current Price", f"${current_price:,.2f}")
+                        with vcol2:
+                            st.metric("Current VWAP", f"${current_vwap:,.2f}")
+                        with vcol3:
+                            st.metric("Deviation from VWAP", f"{deviation:+.2f}%")
+                else:
+                    st.info("Not enough data to calculate VWAP")
+            else:
+                st.info("Tick data with price and volume required for VWAP calculation")
+            
+            st.divider()
+            
             stats = AnalyticsEngine.calculate_price_stats(
                 db.get_tick_data(symbol=chart_symbol, limit=1000), 
                 chart_symbol
@@ -560,6 +751,29 @@ with tab2:
                 
                 if stats.get('current'):
                     alert_manager.check_all_rules('Price', stats['current'], chart_symbol)
+            
+            st.divider()
+            st.subheader("📈 Live Price Line Chart")
+            
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(
+                x=ohlcv_data['timestamp'],
+                y=ohlcv_data['close'],
+                mode='lines+markers',
+                name='Close Price',
+                line=dict(color='green', width=2),
+                marker=dict(size=4)
+            ))
+            
+            fig_line.update_layout(
+                title=f"{chart_symbol} - Live Price Over Time",
+                xaxis_title="Time",
+                yaxis_title="Price (USDT)",
+                height=400,
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.info("No OHLCV data available for this symbol and timeframe")
 
@@ -633,6 +847,49 @@ with tab3:
 
 with tab4:
     st.header("Summary Statistics & Data Export")
+    
+    st.subheader("📊 Multi-Symbol Summary Table")
+    
+    all_symbols = available_symbols if available_symbols else []
+    
+    if all_symbols and len(all_symbols) > 0:
+        multi_summary_data = []
+        
+        for sym in all_symbols:
+            tick_data_sym = db.get_tick_data(symbol=sym, limit=1000)
+            
+            if not tick_data_sym.empty:
+                stats = AnalyticsEngine.calculate_price_stats(tick_data_sym, sym)
+                
+                ohlcv_sym = db.get_ohlcv_data(sym, '1m', limit=100)
+                vol_value = ohlcv_sym['volume'].sum() if not ohlcv_sym.empty else 0
+                
+                multi_summary_data.append({
+                    'Symbol': sym,
+                    'Latest Price': f"${stats.get('current', 0):,.2f}" if stats.get('current') else "N/A",
+                    'Mean': f"${stats.get('mean', 0):,.2f}",
+                    'Std Dev': f"${stats.get('std', 0):,.2f}",
+                    'Volume (1m bars)': f"{vol_value:,.0f}",
+                    'Data Points': stats.get('count', 0)
+                })
+        
+        if multi_summary_data:
+            multi_summary_df = pd.DataFrame(multi_summary_data)
+            st.dataframe(multi_summary_df, use_container_width=True, hide_index=True)
+            
+            multi_csv = multi_summary_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Multi-Symbol Summary (CSV)",
+                data=multi_csv,
+                file_name=f"multi_symbol_summary_{int(time.time())}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No summary data available")
+    else:
+        st.info("No symbols available for summary")
+    
+    st.divider()
     
     col1, col2 = st.columns(2)
     
@@ -724,6 +981,51 @@ with tab5:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                
+                st.divider()
+                st.subheader("Rolling Correlation Time-Series")
+                
+                if len(pivot_data.columns) >= 2:
+                    cor_col1, cor_col2 = st.columns(2)
+                    
+                    with cor_col1:
+                        corr_sym1 = st.selectbox("Symbol 1 for Correlation", pivot_data.columns.tolist(), index=0, key='corr_sym1')
+                    
+                    with cor_col2:
+                        corr_sym2 = st.selectbox("Symbol 2 for Correlation", pivot_data.columns.tolist(), index=1 if len(pivot_data.columns) > 1 else 0, key='corr_sym2')
+                    
+                    rolling_corr_window = st.slider("Rolling Window", 5, 100, 20, key='rolling_corr_window')
+                    
+                    if corr_sym1 != corr_sym2:
+                        rolling_corr = pivot_data[corr_sym1].rolling(window=rolling_corr_window).corr(pivot_data[corr_sym2])
+                        
+                        fig_rolling_corr = go.Figure()
+                        fig_rolling_corr.add_trace(go.Scatter(
+                            x=pivot_data.index,
+                            y=rolling_corr,
+                            mode='lines',
+                            name=f'{corr_sym1} vs {corr_sym2}',
+                            line=dict(color='purple', width=2)
+                        ))
+                        
+                        fig_rolling_corr.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                        fig_rolling_corr.add_hline(y=0.7, line_dash="dot", line_color="green", opacity=0.5)
+                        fig_rolling_corr.add_hline(y=-0.7, line_dash="dot", line_color="red", opacity=0.5)
+                        
+                        fig_rolling_corr.update_layout(
+                            title=f"Rolling Correlation: {corr_sym1} vs {corr_sym2} ({rolling_corr_window}-period)",
+                            xaxis_title="Time",
+                            yaxis_title="Correlation",
+                            height=400,
+                            yaxis=dict(range=[-1, 1])
+                        )
+                        
+                        st.plotly_chart(fig_rolling_corr, use_container_width=True)
+                        
+                        current_corr = rolling_corr.iloc[-1] if not rolling_corr.isna().all() else 0
+                        st.metric("Current Rolling Correlation", f"{current_corr:.4f}")
+                    else:
+                        st.info("Please select different symbols for correlation analysis")
             else:
                 st.info("Need at least 2 symbols for correlation analysis")
         else:
