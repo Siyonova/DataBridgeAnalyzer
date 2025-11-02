@@ -31,9 +31,11 @@ Preferred communication style: Simple, everyday language.
    - **Design Choice**: Callback-based architecture for real-time processing
 
 2. **Analytics Engine** (`modules/analytics.py`)
-   - Statistical computations: OLS regression, robust regression (Huber), correlation analysis
+   - Statistical computations: OLS regression, robust regression (Huber, Theil-Sen), correlation analysis
+   - **Kalman Filter**: Dynamic hedge ratio estimation with time-varying parameters
    - Spread and z-score calculations for pairs trading
    - Augmented Dickey-Fuller (ADF) test for stationarity
+   - **Liquidity Filters**: Volume-based filtering and liquidity scoring
    - **Libraries**: NumPy, Pandas, SciPy, scikit-learn, statsmodels
    - **Design Choice**: Stateless static methods for pure functional analytics
 
@@ -44,8 +46,23 @@ Preferred communication style: Simple, everyday language.
 
 4. **Alert System** (`modules/alerts.py`)
    - Rule-based alerting on metrics (z-score, price, spread, correlation)
+   - **Multi-condition alerts**: Complex rules with AND/OR logic combining multiple metrics
+   - **Webhook notifications**: Real-time alerts sent to external endpoints (Slack, Discord, custom)
    - Callback mechanism for extensible alert actions
    - Alert history tracking with timestamps
+
+5. **Backtesting Engine** (`modules/backtesting.py`)
+   - Mean-reversion strategy simulation with z-score entry/exit thresholds
+   - **Capital-aware position sizing**: 95% allocation with hedge-adjusted exposure
+   - Performance metrics: total return, Sharpe ratio, max drawdown, win rate
+   - Trade history with timestamps and exit reasons
+   - **Design Choice**: Proper spread-based PnL calculations prevent look-ahead bias
+
+6. **WebSocket Server API** (`websocket_server.py`)
+   - Flask-SocketIO server for external data ingestion on port 5001
+   - REST endpoints: /api/tick (single), /api/ticks/batch (bulk)
+   - WebSocket events for real-time data streaming
+   - Integration with DatabaseManager for persistence
 
 ### Data Storage
 
