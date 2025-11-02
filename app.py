@@ -15,6 +15,14 @@ from modules.analytics import AnalyticsEngine
 from modules.resampler import DataResampler
 from modules.alerts import AlertManager, AlertRule
 from modules.backtesting import MeanReversionBacktest
+from modules.ui_helpers import (
+    OnboardingSystem, 
+    AlertNotificationSystem, 
+    TimezoneManager, 
+    ErrorHandler,
+    ReportExporter,
+    AnalysisPresets
+)
 
 st.set_page_config(
     page_title="Crypto Quant Analytics",
@@ -36,6 +44,7 @@ def get_data_queue():
     return queue.Queue()
 
 def initialize_session_state():
+    """Initialize all session state variables"""
     if 'ws_client' not in st.session_state:
         st.session_state.ws_client = None
     if 'ws_running' not in st.session_state:
@@ -46,6 +55,14 @@ def initialize_session_state():
         st.session_state.selected_symbols = ['BTCUSDT', 'ETHUSDT']
     if 'auto_refresh' not in st.session_state:
         st.session_state.auto_refresh = False
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = False
+    if 'preset_config' not in st.session_state:
+        st.session_state.preset_config = {}
+    
+    OnboardingSystem.initialize_onboarding()
+    AlertNotificationSystem.initialize_notifications()
+    TimezoneManager.initialize_timezone()
 
 initialize_session_state()
 
@@ -76,11 +93,66 @@ def process_queued_data():
 if st.session_state.ws_running:
     process_queued_data()
 
+# Apply dark mode CSS if enabled
+if st.session_state.dark_mode:
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .stSidebar {
+            background-color: #262730;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
 st.title("📈 Cryptocurrency Quantitative Analytics Dashboard")
 st.markdown("Real-time analytics for statistical arbitrage and pairs trading")
 
+# Show onboarding tutorial for new users
+if st.session_state.show_onboarding:
+    with st.container():
+        st.info("👋 Welcome! Let's get you started with a quick tutorial.")
+        OnboardingSystem.show_tutorial()
+        st.divider()
+
 with st.sidebar:
     st.header("⚙️ Configuration")
+    
+    # Dark Mode Toggle
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("**Theme**")
+    with col2:
+        dark_mode_enabled = st.checkbox("🌙", value=st.session_state.dark_mode, help="Toggle dark mode", key="dark_mode_toggle")
+        if dark_mode_enabled != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_mode_enabled
+            st.rerun()
+    
+    st.divider()
+    
+    # Show alert badge
+    AlertNotificationSystem.show_alert_badge()
+    
+    # Timezone Selector
+    TimezoneManager.show_timezone_selector()
+    
+    st.divider()
+    
+    # Analysis Presets
+    with st.expander("🎯 Quick Start Presets", expanded=False):
+        AnalysisPresets.show_preset_selector()
+    
+    st.divider()
+    
+    # Tutorial restart button
+    if st.button("📚 Restart Tutorial"):
+        st.session_state.show_onboarding = True
+        st.session_state.onboarding_step = 1
+        st.rerun()
+    
+    st.divider()
     
     data_source = st.selectbox(
         "Data Source",
@@ -148,6 +220,8 @@ POST http://localhost:5001/api/ticks/batch
     elif data_source == "Upload File (NDJSON/CSV)":
         st.subheader("File Upload")
         
+        st.info("📋 **Required format**: timestamp, symbol, price, size columns")
+        
         uploaded_file = st.file_uploader(
             "Choose a file",
             type=['ndjson', 'jsonl', 'csv'],
@@ -156,29 +230,46 @@ POST http://localhost:5001/api/ticks/batch
         
         if uploaded_file is not None:
             try:
-                file_content = uploaded_file.read()
-                df = FileDataLoader.detect_and_load(file_content, uploaded_file.name)
+                with st.spinner('Loading file...'):
+                    file_content = uploaded_file.read()
+                    df = FileDataLoader.detect_and_load(file_content, uploaded_file.name)
                 
-                st.success(f"Loaded {len(df)} records from {uploaded_file.name}")
-                
-                if st.button("💾 Save to Database", use_container_width=True):
-                    ticks = []
-                    for _, row in df.iterrows():
-                        ticks.append({
-                            'symbol': row['symbol'],
-                            'ts': row['timestamp'].isoformat(),
-                            'price': row['price'],
-                            'size': row['size'],
-                            'source': 'file_upload'
-                        })
+                if df.empty:
+                    ErrorHandler.show_error('insufficient_data', 'File loaded but contains no valid data')
+                else:
+                    st.success(f"✅ Loaded {len(df)} records from {uploaded_file.name}")
                     
-                    db.insert_ticks_batch(ticks)
-                    st.session_state.selected_symbols = df['symbol'].unique().tolist()
-                    st.success(f"Saved {len(ticks)} ticks to database")
-                    st.rerun()
+                    with st.expander("📊 Preview Data", expanded=True):
+                        st.dataframe(df.head(10), use_container_width=True)
+                        st.caption(f"Showing first 10 of {len(df)} rows")
+                    
+                    if st.button("💾 Save to Database", use_container_width=True):
+                        with st.spinner('Saving to database...'):
+                            ticks = []
+                            for _, row in df.iterrows():
+                                ticks.append({
+                                    'symbol': row['symbol'],
+                                    'ts': row['timestamp'].isoformat(),
+                                    'price': row['price'],
+                                    'size': row['size'],
+                                    'source': 'file_upload'
+                                })
+                            
+                            db.insert_ticks_batch(ticks)
+                            st.session_state.selected_symbols = df['symbol'].unique().tolist()
+                            AlertNotificationSystem.show_toast_notification(
+                                f"Saved {len(ticks)} ticks to database",
+                                icon="✅"
+                            )
+                            st.success(f"✅ Saved {len(ticks)} ticks to database")
+                            st.rerun()
             
+            except FileNotFoundError as e:
+                ErrorHandler.show_error('file_upload', str(e))
+            except ValueError as e:
+                ErrorHandler.show_error('data_processing', str(e))
             except Exception as e:
-                st.error(f"Error loading file: {str(e)}")
+                ErrorHandler.show_error('data_processing', str(e))
     
     st.divider()
     st.subheader("📊 Database Info")
@@ -945,129 +1036,169 @@ with tab4:
             st.info("No data available for this symbol")
 
 with tab5:
-    st.header("Advanced Analytics")
+    st.header("💾 Data Management & Export")
     
-    st.subheader("Correlation Heatmap")
+    st.subheader("📊 Raw Data Explorer")
     
-    heatmap_timeframe = st.selectbox("Timeframe for Heatmap", ['1m', '5m', '15m'], index=1)
+    # Data filtering and search
+    col1, col2 = st.columns(2)
     
-    tick_data_all = db.get_tick_data(limit=10000)
+    with col1:
+        data_type = st.selectbox("Data Type", ["Tick Data", "OHLCV Data"], key='data_type_export')
     
-    if not tick_data_all.empty and len(tick_data_all['symbol'].unique()) > 1:
-        resampled_all = DataResampler.resample_ticks_to_ohlcv(tick_data_all, heatmap_timeframe)
+    with col2:
+        filter_symbol = st.selectbox(
+            "Filter by Symbol",
+            ["All Symbols"] + available_symbols,
+            key='filter_symbol_export'
+        )
+    
+    # Advanced search
+    with st.expander("🔍 Advanced Search & Filters", expanded=False):
+        col1, col2 = st.columns(2)
         
-        if not resampled_all.empty:
-            pivot_data = resampled_all.pivot(index='timestamp', columns='symbol', values='close')
-            
-            if len(pivot_data.columns) > 1:
-                corr_matrix = pivot_data.corr()
-                
-                fig = go.Figure(data=go.Heatmap(
-                    z=corr_matrix.values,
-                    x=corr_matrix.columns,
-                    y=corr_matrix.index,
-                    colorscale='RdBu',
-                    zmid=0,
-                    text=corr_matrix.values,
-                    texttemplate='%{text:.2f}',
-                    textfont={"size": 10},
-                    colorbar=dict(title="Correlation")
-                ))
-                
-                fig.update_layout(
-                    title="Symbol Correlation Matrix",
-                    xaxis_title="Symbol",
-                    yaxis_title="Symbol",
-                    height=500
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.divider()
-                st.subheader("Rolling Correlation Time-Series")
-                
-                if len(pivot_data.columns) >= 2:
-                    cor_col1, cor_col2 = st.columns(2)
-                    
-                    with cor_col1:
-                        corr_sym1 = st.selectbox("Symbol 1 for Correlation", pivot_data.columns.tolist(), index=0, key='corr_sym1')
-                    
-                    with cor_col2:
-                        corr_sym2 = st.selectbox("Symbol 2 for Correlation", pivot_data.columns.tolist(), index=1 if len(pivot_data.columns) > 1 else 0, key='corr_sym2')
-                    
-                    rolling_corr_window = st.slider("Rolling Window", 5, 100, 20, key='rolling_corr_window')
-                    
-                    if corr_sym1 != corr_sym2:
-                        rolling_corr = pivot_data[corr_sym1].rolling(window=rolling_corr_window).corr(pivot_data[corr_sym2])
-                        
-                        fig_rolling_corr = go.Figure()
-                        fig_rolling_corr.add_trace(go.Scatter(
-                            x=pivot_data.index,
-                            y=rolling_corr,
-                            mode='lines',
-                            name=f'{corr_sym1} vs {corr_sym2}',
-                            line=dict(color='purple', width=2)
-                        ))
-                        
-                        fig_rolling_corr.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-                        fig_rolling_corr.add_hline(y=0.7, line_dash="dot", line_color="green", opacity=0.5)
-                        fig_rolling_corr.add_hline(y=-0.7, line_dash="dot", line_color="red", opacity=0.5)
-                        
-                        fig_rolling_corr.update_layout(
-                            title=f"Rolling Correlation: {corr_sym1} vs {corr_sym2} ({rolling_corr_window}-period)",
-                            xaxis_title="Time",
-                            yaxis_title="Correlation",
-                            height=400,
-                            yaxis=dict(range=[-1, 1])
-                        )
-                        
-                        st.plotly_chart(fig_rolling_corr, use_container_width=True)
-                        
-                        current_corr = rolling_corr.iloc[-1] if not rolling_corr.isna().all() else 0
-                        st.metric("Current Rolling Correlation", f"{current_corr:.4f}")
-                    else:
-                        st.info("Please select different symbols for correlation analysis")
-            else:
-                st.info("Need at least 2 symbols for correlation analysis")
+        with col1:
+            search_term = st.text_input("Search in data", placeholder="Enter search term...", key='search_export')
+        
+        with col2:
+            limit_records = st.number_input("Max Records", min_value=100, max_value=50000, value=1000, step=100)
+    
+    # Fetch and display data
+    if data_type == "Tick Data":
+        if filter_symbol != "All Symbols":
+            raw_data = db.get_tick_data(symbol=filter_symbol, limit=limit_records)
         else:
-            st.info("Resampling data...")
-    else:
-        st.info("Need data from multiple symbols for correlation heatmap")
+            raw_data = db.get_tick_data(limit=limit_records)
+        
+        if not raw_data.empty:
+            # Apply timezone conversion to timestamps
+            raw_data['timestamp_local'] = raw_data['timestamp'].apply(
+                lambda x: TimezoneManager.format_timestamp(x, include_tz=True)
+            )
+            
+            # Apply search filter if provided
+            if search_term:
+                raw_data = raw_data[
+                    raw_data.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
+                ]
+            
+            st.info(f"📋 Showing {len(raw_data)} tick records")
+            
+            # Display with search and filter capabilities
+            st.dataframe(
+                raw_data[['timestamp_local', 'symbol', 'price', 'size']],
+                use_container_width=True,
+                height=400,
+                hide_index=True
+            )
+            
+            # Export options
+            csv_data = raw_data.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Tick Data (CSV)",
+                data=csv_data,
+                file_name=f"tick_data_{int(time.time())}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.info("No tick data available")
+    
+    else:  # OHLCV Data
+        if filter_symbol != "All Symbols":
+            raw_data = db.get_ohlcv_data(filter_symbol, '1m', limit=limit_records)
+        else:
+            all_ohlcv = []
+            for sym in available_symbols:
+                ohlcv_sym = db.get_ohlcv_data(sym, '1m', limit=500)
+                if not ohlcv_sym.empty:
+                    all_ohlcv.append(ohlcv_sym)
+            raw_data = pd.concat(all_ohlcv) if all_ohlcv else pd.DataFrame()
+        
+        if not raw_data.empty:
+            # Apply timezone conversion
+            raw_data['timestamp_local'] = raw_data['timestamp'].apply(
+                lambda x: TimezoneManager.format_timestamp(x, include_tz=True)
+            )
+            
+            # Apply search filter
+            if search_term:
+                raw_data = raw_data[
+                    raw_data.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
+                ]
+            
+            st.info(f"📋 Showing {len(raw_data)} OHLCV records")
+            
+            st.dataframe(
+                raw_data[['timestamp_local', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'timeframe']],
+                use_container_width=True,
+                height=400,
+                hide_index=True
+            )
+            
+            csv_data = raw_data.to_csv(index=False)
+            st.download_button(
+                label="📥 Download OHLCV Data (CSV)",
+                data=csv_data,
+                file_name=f"ohlcv_data_{int(time.time())}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.info("No OHLCV data available")
     
     st.divider()
     
-    st.subheader("Volatility Analysis")
+    # Report generation
+    st.subheader("📄 Generate Analysis Report")
     
-    vol_symbol = st.selectbox("Symbol for Volatility", available_symbols, key='vol_symbol')
+    st.info("Generate a comprehensive HTML report with all current analytics and alerts")
     
-    if vol_symbol:
-        tick_data_vol = db.get_tick_data(symbol=vol_symbol, limit=5000)
-        
-        if not tick_data_vol.empty and len(tick_data_vol) > 20:
-            tick_data_vol = tick_data_vol.sort_values('timestamp')
+    report_title = st.text_input("Report Title", value=f"Crypto Analytics Report - {datetime.utcnow().strftime('%Y-%m-%d')}")
+    
+    if st.button("📝 Generate HTML Report", use_container_width=True):
+        with st.spinner('Generating report...'):
+            # Gather summary statistics
+            summary_stats = {}
+            if available_symbols:
+                summary_stats['Total Symbols'] = len(available_symbols)
+                summary_stats['Total Ticks'] = db.get_data_summary()['total_ticks']
+                summary_stats['Total Bars'] = db.get_data_summary()['total_ohlcv_bars']
+                summary_stats['Active Alerts'] = len(st.session_state.get('active_alerts', []))
             
-            volatility = AnalyticsEngine.calculate_volatility(tick_data_vol['price'], window=20)
+            # Get active alerts
+            alerts = st.session_state.get('active_alerts', [])
             
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=tick_data_vol['timestamp'],
-                y=volatility,
-                mode='lines',
-                name='Annualized Volatility',
-                line=dict(color='red')
-            ))
+            # Generate metadata
+            metadata = {
+                'title': report_title,
+                'period': f"{datetime.utcnow().strftime('%Y-%m-%d')}"
+            }
             
-            fig.update_layout(
-                title=f"{vol_symbol} Rolling Volatility (20-period)",
-                xaxis_title="Time",
-                yaxis_title="Volatility",
-                height=400
+            # Generate HTML report
+            html_report = ReportExporter.generate_html_report(
+                summary_stats=summary_stats,
+                charts=[],
+                alerts=alerts,
+                metadata=metadata
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            # Provide download button
+            st.download_button(
+                label="📥 Download Report (HTML)",
+                data=html_report,
+                file_name=f"crypto_analytics_report_{int(time.time())}.html",
+                mime="text/html",
+                use_container_width=True
+            )
             
-            current_vol = volatility.iloc[-1] if not volatility.isna().all() else 0
-            st.metric("Current Volatility", f"{current_vol:.4f}")
+            st.success("✅ Report generated successfully!")
+    
+    st.divider()
+    
+    # Recent Alerts Display
+    st.subheader("🔔 Alert History")
+    AlertNotificationSystem.show_recent_alerts(limit=10)
 
 st.divider()
 
