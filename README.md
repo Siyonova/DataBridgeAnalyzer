@@ -10,6 +10,8 @@ This application is designed for quantitative traders at multi-frequency trading
 - Risk-premia harvesting
 - Market microstructure analysis
 - Real-time market analytics
+<img width="1913" height="760" alt="image" src="https://github.com/user-attachments/assets/022581a4-986c-4aa1-80ae-899c0f61176d" />
+
 
 ## ✨ Features
 
