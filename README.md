@@ -20,6 +20,8 @@ This application is designed for quantitative traders at multi-frequency trading
 - **File Upload**: Support for NDJSON and CSV file formats
 - **Automatic Format Detection**: Intelligent parsing of various data formats
 - **Multi-symbol Support**: Simultaneous tracking of multiple trading pairs
+<img width="446" height="303" alt="image" src="https://github.com/user-attachments/assets/737af38a-d3bd-4b2a-bd58-2ff94b370ec9" />
+
 
 ### Analytics Engine
 - **OLS Regression**: Calculate hedge ratios between trading pairs
@@ -32,34 +34,65 @@ This application is designed for quantitative traders at multi-frequency trading
 - **Volatility Analysis**: Rolling volatility calculations
 - **Price Statistics**: Comprehensive statistical summaries
 - **Liquidity Filters**: Volume-based filtering to identify tradeable pairs
+<img width="1908" height="866" alt="image" src="https://github.com/user-attachments/assets/c33c4a6c-dadd-49e0-961f-010e440fe71e" />
+<img width="532" height="267" alt="image" src="https://github.com/user-attachments/assets/2eb1006f-9c73-47ee-a6af-126c5d8d5b3f" />
+
 
 ### Visualization
 - **Interactive Candlestick Charts**: OHLCV visualization with zoom and pan
+<img width="1447" height="733" alt="image" src="https://github.com/user-attachments/assets/8fcb9d0a-e0dc-4a7d-aa0d-22e5bb486ab5" />
+<img width="1447" height="696" alt="image" src="https://github.com/user-attachments/assets/2336d8d9-143b-41de-9d2d-105fe96c14c7" />
+
 - **Spread & Z-Score Plots**: Real-time tracking of trading signals
 - **Correlation Heatmaps**: Multi-asset correlation analysis
 - **Volume Analysis**: Trading volume patterns and trends
 - **Normalized Price Comparison**: Side-by-side pair analysis
+<img width="1467" height="866" alt="image" src="https://github.com/user-attachments/assets/5952b7da-b3ec-48b0-a923-be77d4bf96d2" />
+<img width="1451" height="763" alt="image" src="https://github.com/user-attachments/assets/d9f3770b-7658-4fa9-b57c-4cb596629d71" />
+<img width="1458" height="750" alt="image" src="https://github.com/user-attachments/assets/6d2b88d8-b4ef-48f9-ba62-fbb34d167d3f" />
+
+<img width="1467" height="840" alt="image" src="https://github.com/user-attachments/assets/4a56dcd0-da34-4c61-9644-c78238222b54" />
+
+
+
 
 ### Backtesting Engine
 - **Mean-Reversion Strategy**: Simulate pairs trading with configurable entry/exit z-score thresholds
 - **Performance Metrics**: Sharpe ratio, maximum drawdown, win rate, average win/loss
+<img width="1457" height="847" alt="image" src="https://github.com/user-attachments/assets/61cc39d7-ea35-4725-b83d-c4416dcbcea9" />
+<img width="1410" height="532" alt="image" src="https://github.com/user-attachments/assets/09f47e84-7468-4679-a6ea-dfbb5809316b" />
+
+
 - **Equity Curve**: Visual representation of strategy performance over time
 - **Trade History**: Detailed log of all executed trades with timestamps and PnL
 - **Configurable Parameters**: Adjustable initial capital, entry/exit thresholds
 
 ### Alert System
 - **Custom Alert Rules**: Define threshold-based alerts
+<img width="1446" height="786" alt="image" src="https://github.com/user-attachments/assets/f446f407-6056-48b9-952e-9f9c612abd55" />
+
 - **Multi-Condition Alerts**: Complex rules combining multiple metrics with AND/OR logic
 - **Multiple Metrics**: Alerts for z-score, price, spread, correlation
 - **Webhook Notifications**: Send real-time alerts to external services (Slack, Discord, custom endpoints)
 - **Alert History**: Track all triggered alerts with timestamps
+<img width="1432" height="406" alt="image" src="https://github.com/user-attachments/assets/c541694f-835e-459f-ba35-e0d31a939f49" />
+
 - **Database Persistence**: All alerts saved for analysis
 
 ### Data Management
 - **SQLite Database**: Efficient local storage for tick and OHLCV data
+<img width="1447" height="853" alt="image" src="https://github.com/user-attachments/assets/fa8ea58b-a142-4069-9d42-c32a4341a6d5" />
+
 - **Multi-timeframe Resampling**: 1s, 1m, 5m, 15m, 1h intervals
 - **CSV Export**: Download processed data and analytics
+<img width="1452" height="855" alt="image" src="https://github.com/user-attachments/assets/3366a7cd-7007-489e-b1ab-4d1c221df46c" />
+<img width="1462" height="350" alt="image" src="https://github.com/user-attachments/assets/f49b2ced-0e95-4ae6-95b0-9a6f3fa640b2" />
+
+<img width="1453" height="670" alt="image" src="https://github.com/user-attachments/assets/fdbbc894-e806-451f-a67c-73dbc23a406f" />
+
 - **Summary Statistics**: Time-series aggregation and export
+
+
 
 ### External Integration
 - **WebSocket Server API**: Flask-based server accepting tick data from external sources
