@@ -49,8 +49,6 @@ This application is designed for quantitative traders at multi-frequency trading
 - **Normalized Price Comparison**: Side-by-side pair analysis
 <img width="1467" height="866" alt="image" src="https://github.com/user-attachments/assets/5952b7da-b3ec-48b0-a923-be77d4bf96d2" />
 <img width="1451" height="763" alt="image" src="https://github.com/user-attachments/assets/d9f3770b-7658-4fa9-b57c-4cb596629d71" />
-<img width="1458" height="750" alt="image" src="https://github.com/user-attachments/assets/6d2b88d8-b4ef-48f9-ba62-fbb34d167d3f" />
-
 <img width="1467" height="840" alt="image" src="https://github.com/user-attachments/assets/4a56dcd0-da34-4c61-9644-c78238222b54" />
 
 
